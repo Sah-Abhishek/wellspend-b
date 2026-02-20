@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { createGroup, listGroups, getGroup, joinGroup, getLeaderboard, deleteGroup } from '../controllers/group.controller.js';
+import { createGroup, listGroups, getGroup, joinGroup, getLeaderboard, getMemberStats, getMemberLog, deleteGroup } from '../controllers/group.controller.js';
 import { authenticate } from '../middleware/auth.js';
 
 const router = Router();
@@ -10,6 +10,8 @@ router.post('/', createGroup);
 router.post('/join', joinGroup);
 router.get('/:id', getGroup);
 router.get('/:id/leaderboard', getLeaderboard);
+router.get('/:id/members/:userId/stats', getMemberStats);
+router.get('/:id/members/:userId/logs', getMemberLog);
 router.delete('/:id', deleteGroup);
 
 export default router;
