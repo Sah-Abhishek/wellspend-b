@@ -1,6 +1,11 @@
 import prisma from '../config/db.js';
 import { calculatePoints } from './points.controller.js';
 
+const logIncludes = {
+  entries: { include: { food: true } },
+  studyEntries: { include: { subject: true } },
+};
+
 async function recalcTotals(logId) {
   const entries = await prisma.foodLogEntry.findMany({
     where: { logId },
@@ -15,6 +20,15 @@ async function recalcTotals(logId) {
   });
 }
 
+async function recalcStudyTotal(logId) {
+  const entries = await prisma.studyLogEntry.findMany({ where: { logId } });
+  const studyHours = entries.reduce((s, e) => s + e.hours, 0);
+  await prisma.dailyLog.update({
+    where: { id: logId },
+    data: { studyHours },
+  });
+}
+
 export async function getOrCreateLog(req, res, next) {
   try {
     const dateStr = req.query.date || new Date().toISOString().split('T')[0];
@@ -22,13 +36,13 @@ export async function getOrCreateLog(req, res, next) {
 
     let log = await prisma.dailyLog.findUnique({
       where: { userId_date: { userId: req.userId, date } },
-      include: { entries: { include: { food: true } } },
+      include: logIncludes,
     });
 
     if (!log) {
       log = await prisma.dailyLog.create({
         data: { userId: req.userId, date },
-        include: { entries: { include: { food: true } } },
+        include: logIncludes,
       });
     }
 
@@ -53,7 +67,7 @@ export async function addFoodEntry(req, res, next) {
 
     const updated = await prisma.dailyLog.findUnique({
       where: { id: log.id },
-      include: { entries: { include: { food: true } } },
+      include: logIncludes,
     });
     res.json(updated);
   } catch (err) { next(err); }
@@ -73,7 +87,50 @@ export async function removeFoodEntry(req, res, next) {
 
     const updated = await prisma.dailyLog.findUnique({
       where: { id: log.id },
-      include: { entries: { include: { food: true } } },
+      include: logIncludes,
+    });
+    res.json(updated);
+  } catch (err) { next(err); }
+}
+
+export async function addStudyEntry(req, res, next) {
+  try {
+    const { subjectId, hours = 0 } = req.body;
+    if (!subjectId) return res.status(400).json({ error: 'subjectId is required' });
+
+    const log = await prisma.dailyLog.findUnique({ where: { id: req.params.logId } });
+    if (!log || log.userId !== req.userId) return res.status(404).json({ error: 'Log not found' });
+
+    await prisma.studyLogEntry.create({
+      data: { logId: log.id, subjectId, hours: parseFloat(hours) || 0 },
+    });
+
+    await recalcStudyTotal(log.id);
+    calculatePoints(req.userId, log.date).catch(() => {});
+
+    const updated = await prisma.dailyLog.findUnique({
+      where: { id: log.id },
+      include: logIncludes,
+    });
+    res.json(updated);
+  } catch (err) { next(err); }
+}
+
+export async function removeStudyEntry(req, res, next) {
+  try {
+    const log = await prisma.dailyLog.findUnique({ where: { id: req.params.logId } });
+    if (!log || log.userId !== req.userId) return res.status(404).json({ error: 'Log not found' });
+
+    await prisma.studyLogEntry.deleteMany({
+      where: { id: req.params.entryId, logId: log.id },
+    });
+
+    await recalcStudyTotal(log.id);
+    calculatePoints(req.userId, log.date).catch(() => {});
+
+    const updated = await prisma.dailyLog.findUnique({
+      where: { id: log.id },
+      include: logIncludes,
     });
     res.json(updated);
   } catch (err) { next(err); }
@@ -84,15 +141,14 @@ export async function updateLog(req, res, next) {
     const log = await prisma.dailyLog.findUnique({ where: { id: req.params.logId } });
     if (!log || log.userId !== req.userId) return res.status(404).json({ error: 'Log not found' });
 
-    const { studyHours, exerciseMins } = req.body;
+    const { exerciseMins } = req.body;
     const data = {};
-    if (studyHours !== undefined) data.studyHours = parseFloat(studyHours) || 0;
     if (exerciseMins !== undefined) data.exerciseMins = parseFloat(exerciseMins) || 0;
 
     const updated = await prisma.dailyLog.update({
       where: { id: log.id },
       data,
-      include: { entries: { include: { food: true } } },
+      include: logIncludes,
     });
     calculatePoints(req.userId, log.date).catch(() => {});
     res.json(updated);

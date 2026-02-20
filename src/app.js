@@ -7,6 +7,7 @@ import logRoutes from './routes/log.routes.js';
 import statsRoutes from './routes/stats.routes.js';
 import groupRoutes from './routes/group.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
+import studyRoutes from './routes/study.routes.js';
 
 const app = express();
 
@@ -20,6 +21,7 @@ app.use('/api/logs', logRoutes);
 app.use('/api/stats', statsRoutes);
 app.use('/api/groups', groupRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/study-subjects', studyRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
