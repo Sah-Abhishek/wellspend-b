@@ -1,0 +1,129 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  password  String
+  avatar    String?
+  createdAt DateTime @default(now())
+
+  foods             FoodItem[]
+  dailyLogs         DailyLog[]
+  memberships       GroupMember[]
+  points            PointEntry[]
+  pushSubscriptions PushSubscription[]
+}
+
+model FoodItem {
+  id       String  @id @default(cuid())
+  name     String
+  protein  Float   @default(0)
+  calories Float   @default(0)
+  cost     Float   @default(0)
+  serving  String  @default("1 serving")
+  emoji    String  @default("🍽️")
+  userId   String
+
+  user    User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entries FoodLogEntry[]
+
+  @@index([userId])
+}
+
+model DailyLog {
+  id            String   @id @default(cuid())
+  date          DateTime @db.Date
+  totalProtein  Float    @default(0)
+  totalCalories Float    @default(0)
+  totalSpending Float    @default(0)
+  studyHours    Float    @default(0)
+  exerciseMins  Float    @default(0)
+  userId        String
+
+  user    User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entries FoodLogEntry[]
+
+  @@unique([userId, date])
+  @@index([userId])
+}
+
+model FoodLogEntry {
+  id       String @id @default(cuid())
+  servings Float  @default(1)
+  logId    String
+  foodId   String
+
+  log  DailyLog @relation(fields: [logId], references: [id], onDelete: Cascade)
+  food FoodItem @relation(fields: [foodId], references: [id], onDelete: Cascade)
+
+  @@index([logId])
+}
+
+model Group {
+  id         String   @id @default(cuid())
+  name       String
+  inviteCode String   @unique
+  ownerId    String
+  createdAt  DateTime @default(now())
+
+  members GroupMember[]
+  goals   GroupGoal[]
+  points  PointEntry[]
+}
+
+model GroupMember {
+  id       String   @id @default(cuid())
+  userId   String
+  groupId  String
+  joinedAt DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, groupId])
+}
+
+model GroupGoal {
+  id       String @id @default(cuid())
+  category String
+  target   Float
+  groupId  String
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId])
+}
+
+model PointEntry {
+  id      String   @id @default(cuid())
+  date    DateTime @db.Date
+  points  Int      @default(0)
+  userId  String
+  groupId String
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, groupId, date])
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
