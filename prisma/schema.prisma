@@ -49,9 +49,10 @@ model DailyLog {
   exerciseMins  Float    @default(0)
   userId        String
 
-  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  entries      FoodLogEntry[]
-  studyEntries StudyLogEntry[]
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entries         FoodLogEntry[]
+  studyEntries    StudyLogEntry[]
+  spendingEntries SpendingEntry[]
 
   @@unique([userId, date])
   @@index([userId])
@@ -130,6 +131,17 @@ model PushSubscription {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+model SpendingEntry {
+  id          String @id @default(cuid())
+  description String
+  amount      Float  @default(0)
+  logId       String
+
+  log DailyLog @relation(fields: [logId], references: [id], onDelete: Cascade)
+
+  @@index([logId])
 }
 
 model StudySubject {

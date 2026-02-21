@@ -4,6 +4,7 @@ import { calculatePoints } from './points.controller.js';
 const logIncludes = {
   entries: { include: { food: true } },
   studyEntries: { include: { subject: true } },
+  spendingEntries: true,
 };
 
 async function recalcTotals(logId) {
@@ -13,7 +14,10 @@ async function recalcTotals(logId) {
   });
   const totalProtein = entries.reduce((s, e) => s + e.food.protein * e.servings, 0);
   const totalCalories = entries.reduce((s, e) => s + e.food.calories * e.servings, 0);
-  const totalSpending = entries.reduce((s, e) => s + (e.cost ?? e.food.cost) * e.servings, 0);
+  const foodSpending = entries.reduce((s, e) => s + (e.cost ?? e.food.cost) * e.servings, 0);
+  const spendingEntries = await prisma.spendingEntry.findMany({ where: { logId } });
+  const extraSpending = spendingEntries.reduce((s, e) => s + e.amount, 0);
+  const totalSpending = foodSpending + extraSpending;
   await prisma.dailyLog.update({
     where: { id: logId },
     data: { totalProtein, totalCalories, totalSpending },
@@ -127,6 +131,49 @@ export async function removeStudyEntry(req, res, next) {
     });
 
     await recalcStudyTotal(log.id);
+    calculatePoints(req.userId, log.date).catch(() => {});
+
+    const updated = await prisma.dailyLog.findUnique({
+      where: { id: log.id },
+      include: logIncludes,
+    });
+    res.json(updated);
+  } catch (err) { next(err); }
+}
+
+export async function addSpendingEntry(req, res, next) {
+  try {
+    const { description, amount } = req.body;
+    if (!description || amount == null) return res.status(400).json({ error: 'description and amount are required' });
+
+    const log = await prisma.dailyLog.findUnique({ where: { id: req.params.logId } });
+    if (!log || log.userId !== req.userId) return res.status(404).json({ error: 'Log not found' });
+
+    await prisma.spendingEntry.create({
+      data: { logId: log.id, description, amount: parseFloat(amount) || 0 },
+    });
+
+    await recalcTotals(log.id);
+    calculatePoints(req.userId, log.date).catch(() => {});
+
+    const updated = await prisma.dailyLog.findUnique({
+      where: { id: log.id },
+      include: logIncludes,
+    });
+    res.json(updated);
+  } catch (err) { next(err); }
+}
+
+export async function removeSpendingEntry(req, res, next) {
+  try {
+    const log = await prisma.dailyLog.findUnique({ where: { id: req.params.logId } });
+    if (!log || log.userId !== req.userId) return res.status(404).json({ error: 'Log not found' });
+
+    await prisma.spendingEntry.deleteMany({
+      where: { id: req.params.entryId, logId: log.id },
+    });
+
+    await recalcTotals(log.id);
     calculatePoints(req.userId, log.date).catch(() => {});
 
     const updated = await prisma.dailyLog.findUnique({
