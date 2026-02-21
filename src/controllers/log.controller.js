@@ -13,7 +13,7 @@ async function recalcTotals(logId) {
   });
   const totalProtein = entries.reduce((s, e) => s + e.food.protein * e.servings, 0);
   const totalCalories = entries.reduce((s, e) => s + e.food.calories * e.servings, 0);
-  const totalSpending = entries.reduce((s, e) => s + e.food.cost * e.servings, 0);
+  const totalSpending = entries.reduce((s, e) => s + (e.cost ?? e.food.cost) * e.servings, 0);
   await prisma.dailyLog.update({
     where: { id: logId },
     data: { totalProtein, totalCalories, totalSpending },
@@ -52,15 +52,16 @@ export async function getOrCreateLog(req, res, next) {
 
 export async function addFoodEntry(req, res, next) {
   try {
-    const { foodId, servings = 1 } = req.body;
+    const { foodId, servings = 1, cost } = req.body;
     if (!foodId) return res.status(400).json({ error: 'foodId is required' });
 
     const log = await prisma.dailyLog.findUnique({ where: { id: req.params.logId } });
     if (!log || log.userId !== req.userId) return res.status(404).json({ error: 'Log not found' });
 
-    await prisma.foodLogEntry.create({
-      data: { logId: log.id, foodId, servings },
-    });
+    const data = { logId: log.id, foodId, servings };
+    if (cost != null) data.cost = parseFloat(cost);
+
+    await prisma.foodLogEntry.create({ data });
 
     await recalcTotals(log.id);
     calculatePoints(req.userId, log.date).catch(() => {});

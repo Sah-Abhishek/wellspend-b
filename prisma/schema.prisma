@@ -60,6 +60,7 @@ model DailyLog {
 model FoodLogEntry {
   id       String @id @default(cuid())
   servings Float  @default(1)
+  cost     Float?
   logId    String
   foodId   String
 
