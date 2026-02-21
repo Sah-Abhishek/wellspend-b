@@ -4,17 +4,21 @@ import { sendPushToGroup } from '../utils/pushNotification.js';
 
 export async function createGroup(req, res, next) {
   try {
-    const { name, goals = [] } = req.body;
+    const { name, goals = [], weeklyGoals = [] } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: 'Group name is required' });
 
     const inviteCode = nanoid(8);
+    const allGoals = [
+      ...goals.map(g => ({ category: g.category, target: parseFloat(g.target) || 0, type: 'daily' })),
+      ...weeklyGoals.map(g => ({ category: g.category, target: parseFloat(g.target) || 0, type: 'weekly' })),
+    ];
     const group = await prisma.group.create({
       data: {
         name,
         inviteCode,
         ownerId: req.userId,
         members: { create: { userId: req.userId } },
-        goals: { create: goals.map(g => ({ category: g.category, target: parseFloat(g.target) || 0 })) },
+        goals: { create: allGoals },
       },
       include: { goals: true, members: true },
     });
@@ -204,6 +208,90 @@ export async function getMemberLog(req, res, next) {
     });
 
     res.json(log || { date: dateStr, totalProtein: 0, totalCalories: 0, totalSpending: 0, studyHours: 0, exerciseMins: 0, entries: [] });
+  } catch (err) { next(err); }
+}
+
+const categoryToLogField = {
+  protein: 'totalProtein',
+  calories: 'totalCalories',
+  spending: 'totalSpending',
+  study: 'studyHours',
+  exercise: 'exerciseMins',
+};
+
+export async function getWeeklyProgress(req, res, next) {
+  try {
+    const group = await prisma.group.findUnique({
+      where: { id: req.params.id },
+      include: {
+        goals: { where: { type: 'weekly' } },
+        members: { include: { user: { select: { id: true, name: true } } } },
+      },
+    });
+    if (!group) return res.status(404).json({ error: 'Group not found' });
+    if (group.goals.length === 0) return res.json([]);
+
+    // Calculate current week boundaries (Mon 00:00 → Sun 23:59 UTC)
+    const now = new Date();
+    const day = now.getUTCDay(); // 0=Sun, 1=Mon, ...
+    const diffToMon = day === 0 ? -6 : 1 - day;
+    const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + diffToMon));
+    const sunday = new Date(Date.UTC(monday.getUTCFullYear(), monday.getUTCMonth(), monday.getUTCDate() + 6, 23, 59, 59, 999));
+
+    const memberIds = group.members.map(m => m.userId);
+
+    // Batch fetch all daily logs for the week for all members
+    const logs = await prisma.dailyLog.findMany({
+      where: {
+        userId: { in: memberIds },
+        date: { gte: monday, lte: sunday },
+      },
+    });
+
+    // Compute per-member sums
+    const memberSums = {};
+    for (const m of group.members) {
+      memberSums[m.userId] = { userName: m.user.name };
+      for (const cat of Object.keys(categoryToLogField)) {
+        memberSums[m.userId][cat] = 0;
+      }
+    }
+    for (const log of logs) {
+      if (!memberSums[log.userId]) continue;
+      for (const [cat, field] of Object.entries(categoryToLogField)) {
+        memberSums[log.userId][cat] += log[field] || 0;
+      }
+    }
+
+    // Build response: one entry per weekly goal
+    const result = group.goals.map(goal => {
+      const members = group.members.map(m => {
+        const current = memberSums[m.userId][goal.category] || 0;
+        let percent;
+        if (goal.target <= 0) {
+          percent = 0;
+        } else if (goal.category === 'spending') {
+          // Spending: 100% if at/under budget, decreasing if over
+          percent = current === 0 ? 100 : current <= goal.target ? 100 : Math.round((goal.target / current) * 100);
+        } else {
+          percent = Math.min(100, Math.round((current / goal.target) * 100));
+        }
+        return {
+          userId: m.userId,
+          userName: m.user.name,
+          current: Math.round(current * 10) / 10,
+          percent,
+        };
+      });
+      return {
+        goalId: goal.id,
+        category: goal.category,
+        target: goal.target,
+        members,
+      };
+    });
+
+    res.json(result);
   } catch (err) { next(err); }
 }
 

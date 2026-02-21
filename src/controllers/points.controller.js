@@ -26,7 +26,8 @@ export async function calculatePoints(userId, date) {
     const { group } = membership;
     let goalsHit = 0;
 
-    for (const goal of group.goals) {
+    const dailyGoals = group.goals.filter(g => g.type !== 'weekly');
+    for (const goal of dailyGoals) {
       const field = categoryToLogField[goal.category];
       if (!field) continue;
       const value = log[field] || 0;
