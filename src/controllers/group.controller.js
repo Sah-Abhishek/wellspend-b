@@ -295,6 +295,43 @@ export async function getWeeklyProgress(req, res, next) {
   } catch (err) { next(err); }
 }
 
+export async function updateGroup(req, res, next) {
+  try {
+    const group = await prisma.group.findUnique({ where: { id: req.params.id } });
+    if (!group || group.ownerId !== req.userId) {
+      return res.status(403).json({ error: 'Only the owner can edit this group' });
+    }
+
+    const { name, goals = [], weeklyGoals = [] } = req.body;
+
+    // Update group name if provided
+    if (name?.trim()) {
+      await prisma.group.update({ where: { id: group.id }, data: { name: name.trim() } });
+    }
+
+    // Delete all existing goals, then recreate
+    await prisma.groupGoal.deleteMany({ where: { groupId: group.id } });
+
+    const allGoals = [
+      ...goals.map(g => ({ category: g.category, target: parseFloat(g.target) || 0, type: 'daily', groupId: group.id })),
+      ...weeklyGoals.map(g => ({ category: g.category, target: parseFloat(g.target) || 0, type: 'weekly', groupId: group.id })),
+    ];
+    if (allGoals.length > 0) {
+      await prisma.groupGoal.createMany({ data: allGoals });
+    }
+
+    // Return updated group
+    const updated = await prisma.group.findUnique({
+      where: { id: group.id },
+      include: {
+        goals: true,
+        members: { include: { user: { select: { id: true, name: true } } } },
+      },
+    });
+    res.json(updated);
+  } catch (err) { next(err); }
+}
+
 export async function deleteGroup(req, res, next) {
   try {
     const group = await prisma.group.findUnique({ where: { id: req.params.id } });
